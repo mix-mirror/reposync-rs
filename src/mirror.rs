@@ -1,5 +1,5 @@
 use crate::{
-    config::{Auth, AuthType, DEFAULT_REFSPECS, Repo},
+    config::{Auth, AuthType, Repo},
     error::{Error, Result},
     markdown::RepoSyncResult,
 };
@@ -14,7 +14,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, SystemTime},
 };
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 static PROGRESS_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -30,19 +30,12 @@ pub struct HeadInfo {
     msg: String,
 }
 
-pub fn clone_mirror_and_inspect(repo: &Repo, refspecs: &[String]) -> Result<RepoSyncResult> {
+pub fn clone_mirror_and_inspect(repo: &Repo) -> Result<RepoSyncResult> {
     let start = SystemTime::now();
     let workdir = create_temp_dir()?;
     let _cleanup = TempDir {
         path: workdir.clone(),
     };
-
-    let effective_refspecs: Vec<String> = if refspecs.is_empty() {
-        DEFAULT_REFSPECS.iter().map(|s| s.to_string()).collect()
-    } else {
-        refspecs.to_vec()
-    };
-    let refspecs_borrowed: Vec<&str> = effective_refspecs.iter().map(|s| s.as_str()).collect();
 
     let bare_path = workdir.join("bare.git");
     let mut init_opts = RepositoryInitOptions::new();
@@ -89,7 +82,11 @@ pub fn clone_mirror_and_inspect(repo: &Repo, refspecs: &[String]) -> Result<Repo
             source,
         })?;
         remote
-            .fetch(&refspecs_borrowed, Some(&mut fetch_opts), None)
+            .fetch(
+                &["+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"],
+                Some(&mut fetch_opts),
+                None,
+            )
             .map_err(|source| Error::Git {
                 context: "fetch origin",
                 source,
@@ -119,10 +116,14 @@ pub fn clone_mirror_and_inspect(repo: &Repo, refspecs: &[String]) -> Result<Repo
         });
     }
     if PROGRESS_ENABLED.load(Ordering::Relaxed) {
-        push_cb.transfer_progress(|stats| {
+        let mut last_log_time = SystemTime::now();
+        push_cb.transfer_progress(move |stats| {
             if stats.total_objects() > 0 {
                 let pct = (100 * stats.received_objects()) / stats.total_objects();
-                info!(progress = %pct, received = %stats.received_objects(), total = %stats.total_objects(), "git push progress");
+                if last_log_time.elapsed().unwrap_or_default() > Duration::from_secs(1) {
+                    info!(progress = %pct, received = %stats.received_objects(), total = %stats.total_objects(), "git push progress");
+                    last_log_time = SystemTime::now();
+                }
             }
             true
         });
@@ -135,8 +136,28 @@ pub fn clone_mirror_and_inspect(repo: &Repo, refspecs: &[String]) -> Result<Repo
             context: "find target remote",
             source,
         })?;
+        let mut references = Vec::new();
+        for glob in ["refs/heads/*", "refs/tags/*"] {
+            let refs = r.references_glob(glob).map_err(|source| Error::Git {
+                context: "get references",
+                source,
+            })?;
+            for ref_ in refs {
+                if let Some(name) = ref_
+                    .map_err(|source| Error::Git {
+                        context: "get reference",
+                        source,
+                    })?
+                    .name()
+                {
+                    debug!(repo = %repo.display_name(), reference = %name, glob = %glob, "listing reference");
+                    references.push(format!("+{}:{}", name, name));
+                }
+            }
+        }
+        info!(repo = %repo.display_name(), references = %references.len(), "pushing references to target");
         remote
-            .push(&refspecs_borrowed, Some(&mut push_opts))
+            .push(&references, Some(&mut push_opts))
             .map_err(|source| Error::Git {
                 context: "push target",
                 source,
@@ -248,7 +269,7 @@ struct TempDir {
 impl Drop for TempDir {
     fn drop(&mut self) {
         if let Err(err) = fs::remove_dir_all(&self.path) {
-            debug!("failed to remove temp dir {}: {}", self.path.display(), err);
+            warn!(path = %self.path.display(), error = %format!("{err}"), "failed to remove temp dir");
         }
     }
 }

@@ -10,16 +10,10 @@ use std::{
 };
 use tracing::warn;
 
-pub const DEFAULT_REFSPECS: [&str; 2] = ["+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"];
-
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     #[serde(default)]
     pub repos: Vec<Repo>,
-
-    /// Optional refspecs applied to all repos unless overridden.
-    #[serde(default)]
-    pub refspecs: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -28,10 +22,6 @@ pub struct Repo {
     pub name: String,
     pub origin: Remote,
     pub target: Remote,
-
-    /// Optional refspecs overriding global/default.
-    #[serde(default)]
-    pub refspecs: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -109,16 +99,6 @@ impl Repo {
             return seg.trim_end_matches(".git").to_string();
         }
         url.to_string()
-    }
-
-    pub fn effective_refspecs<'a>(&'a self, global: &'a [String]) -> Vec<String> {
-        if !self.refspecs.is_empty() {
-            return self.refspecs.clone();
-        }
-        if !global.is_empty() {
-            return global.to_vec();
-        }
-        DEFAULT_REFSPECS.iter().map(|s| s.to_string()).collect()
     }
 }
 

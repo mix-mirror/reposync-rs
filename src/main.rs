@@ -62,15 +62,6 @@ fn main() -> Result<()> {
         return Err(Error::EmptyConfig);
     }
 
-    let global_refspecs = if config.refspecs.is_empty() {
-        config::DEFAULT_REFSPECS
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
-    } else {
-        config.refspecs.clone()
-    };
-
     mirror::set_progress_enabled(cli.progress);
 
     let pool = rayon::ThreadPoolBuilder::new()
@@ -84,9 +75,8 @@ fn main() -> Result<()> {
             .par_iter()
             .enumerate()
             .map(|(idx, repo)| {
-                let refspecs = repo.effective_refspecs(&global_refspecs);
                 let start = std::time::Instant::now();
-                match mirror::clone_mirror_and_inspect(repo, &refspecs) {
+                match mirror::clone_mirror_and_inspect(repo) {
                     Ok(res) => {
                         info!(
                             repo = %repo.display_name(),
