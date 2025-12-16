@@ -68,10 +68,14 @@ pub fn clone_mirror_and_inspect(repo: &Repo, refspecs: &[String]) -> Result<Repo
         });
     }
     if PROGRESS_ENABLED.load(Ordering::Relaxed) {
-        fetch_cb.transfer_progress(|stats| {
+        let mut last_log_time = SystemTime::now();
+        fetch_cb.transfer_progress(move |stats| {
             if stats.total_objects() > 0 {
                 let pct = (100 * stats.received_objects()) / stats.total_objects();
-                info!(progress = %pct, received = %stats.received_objects(), total = %stats.total_objects(), "git fetch progress");
+                if last_log_time.elapsed().unwrap_or_default() > Duration::from_secs(1) {
+                    info!(repo = %repo.display_name(), progress = %pct, received = %stats.received_objects(), total = %stats.total_objects(), "git fetch progress");
+                    last_log_time = SystemTime::now();
+                }
             }
             true
         });

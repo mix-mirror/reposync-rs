@@ -8,7 +8,7 @@ use clap::Parser;
 use mimalloc::MiMalloc;
 use rayon::prelude::*;
 use std::{cmp::Ordering as CmpOrdering, path::PathBuf};
-use tracing::info;
+use tracing::{error, info};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -96,7 +96,7 @@ fn main() -> Result<()> {
                         (idx, res)
                     }
                     Err(err) => {
-                        info!(
+                        error!(
                             repo = %repo.display_name(),
                             error = %format!("{err}"),
                             "sync error"

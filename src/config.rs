@@ -4,9 +4,11 @@ use regex::{Captures, Regex};
 use serde::Deserialize;
 use serde_yaml::Value;
 use std::{
+    env::VarError,
     fs,
     path::{Path, PathBuf},
 };
+use tracing::warn;
 
 pub const DEFAULT_REFSPECS: [&str; 2] = ["+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"];
 
@@ -177,19 +179,16 @@ fn expand_env(s: &str) -> String {
             .or_else(|| caps.get(2))
             .map(|m| m.as_str())
             .unwrap_or_default();
-        std::env::var(key).unwrap_or_default()
+        resolve_env(key)
     })
     .into_owned()
 }
 
 fn resolve_secret(s: &str) -> Result<String> {
     match s.trim().split_once(':') {
-        Some(("env", val)) => Ok(std::env::var(val).unwrap_or_default()),
+        Some(("env", val)) => Ok(resolve_env(val)),
         Some(("env-b64", val)) => {
-            let env_val = std::env::var(val).unwrap_or_default();
-            if env_val.is_empty() {
-                return Ok(String::new());
-            }
+            let env_val = resolve_env(val);
             let decoded = base64::engine::general_purpose::STANDARD
                 .decode(env_val)
                 .map_err(|source| Error::SecretDecode {
@@ -219,5 +218,22 @@ fn resolve_secret(s: &str) -> Result<String> {
             Ok(String::from_utf8_lossy(&decoded).to_string())
         }
         _ => Ok(s.to_string()),
+    }
+}
+
+fn resolve_env(key: &str) -> String {
+    match std::env::var(key) {
+        Ok(env_val) => env_val,
+        Err(VarError::NotPresent) => {
+            warn!(name = key, "environment variable not present");
+            String::new()
+        }
+        Err(VarError::NotUnicode(_)) => {
+            warn!(
+                name = key,
+                "environment variable not a valid unicode string"
+            );
+            String::new()
+        }
     }
 }
