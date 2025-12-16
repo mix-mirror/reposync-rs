@@ -14,7 +14,8 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, SystemTime},
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, info, info_span, warn};
+use tracing_indicatif::span_ext::IndicatifSpanExt;
 
 static PROGRESS_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -61,15 +62,11 @@ pub fn clone_mirror_and_inspect(repo: &Repo) -> Result<RepoSyncResult> {
         });
     }
     if PROGRESS_ENABLED.load(Ordering::Relaxed) {
-        let mut last_log_time = SystemTime::now();
+        let header_span = info_span!("git fetch progress", repo = %repo.display_name());
+        header_span.pb_start();
         fetch_cb.transfer_progress(move |stats| {
-            if stats.total_objects() > 0 {
-                let pct = (100 * stats.received_objects()) / stats.total_objects();
-                if last_log_time.elapsed().unwrap_or_default() > Duration::from_secs(1) {
-                    info!(repo = %repo.display_name(), progress = %pct, received = %stats.received_objects(), total = %stats.total_objects(), "git fetch progress");
-                    last_log_time = SystemTime::now();
-                }
-            }
+            header_span.pb_set_length(stats.total_objects() as u64);
+            header_span.pb_set_position(stats.received_objects() as u64);
             true
         });
     }
@@ -116,15 +113,12 @@ pub fn clone_mirror_and_inspect(repo: &Repo) -> Result<RepoSyncResult> {
         });
     }
     if PROGRESS_ENABLED.load(Ordering::Relaxed) {
-        let mut last_log_time = SystemTime::now();
+        let header_span = info_span!("git push progress", repo = %repo.display_name());
+
+        header_span.pb_start();
         push_cb.transfer_progress(move |stats| {
-            if stats.total_objects() > 0 {
-                let pct = (100 * stats.received_objects()) / stats.total_objects();
-                if last_log_time.elapsed().unwrap_or_default() > Duration::from_secs(1) {
-                    info!(progress = %pct, received = %stats.received_objects(), total = %stats.total_objects(), "git push progress");
-                    last_log_time = SystemTime::now();
-                }
-            }
+            header_span.pb_set_length(stats.total_objects() as u64);
+            header_span.pb_set_position(stats.received_objects() as u64);
             true
         });
     }

@@ -9,6 +9,10 @@ use mimalloc::MiMalloc;
 use rayon::prelude::*;
 use std::{cmp::Ordering as CmpOrdering, path::PathBuf};
 use tracing::{error, info};
+use tracing_indicatif::IndicatifLayer;
+use tracing_indicatif::style::ProgressStyle;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -54,7 +58,18 @@ fn default_concurrency() -> usize {
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    let indicatif_layer = IndicatifLayer::new().with_progress_style(
+        ProgressStyle::with_template(
+            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} ({percent:>3}%) \
+             ETA {eta_precise:.magenta} {span_child_prefix} {span_name:.green} {span_fields:.dim} {msg}",
+        )
+        .expect("valid template"),
+    );
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_writer(indicatif_layer.get_stderr_writer()))
+        .with(indicatif_layer)
+        .init();
+
     let cli = Cli::parse();
 
     let config = config::load_config(&cli.config)?;
