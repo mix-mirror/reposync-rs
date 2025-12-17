@@ -60,6 +60,10 @@ pub fn clone_mirror_and_inspect(repo: &Repo) -> Result<RepoSyncResult> {
         fetch_cb.credentials(move |_, username_from_url, allowed| {
             build_credentials(&auth, username_from_url, allowed)
         });
+        fetch_cb.certificate_check(|_, host| {
+            info!(host = %host, repo = %repo.display_name(), "trusting certificate");
+            Ok(git2::CertificateCheckStatus::CertificateOk)
+        });
     }
     if PROGRESS_ENABLED.load(Ordering::Relaxed) {
         let header_span = info_span!("git fetch progress", repo = %repo.display_name());
@@ -110,6 +114,10 @@ pub fn clone_mirror_and_inspect(repo: &Repo) -> Result<RepoSyncResult> {
         let auth = repo.target.auth.clone();
         push_cb.credentials(move |_, username_from_url, allowed| {
             build_credentials(&auth, username_from_url, allowed)
+        });
+        push_cb.certificate_check(|_, host| {
+            info!(host = %host, repo = %repo.display_name(), "trusting certificate");
+            Ok(git2::CertificateCheckStatus::CertificateOk)
         });
     }
     if PROGRESS_ENABLED.load(Ordering::Relaxed) {
